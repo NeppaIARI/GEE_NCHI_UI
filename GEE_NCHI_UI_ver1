@@ -1,0 +1,2321 @@
+Map.setCenter(77.1025,28.7041,6)
+var panel1 = ui.Panel();
+panel1.style().set({
+  width: '320px',
+});
+ui.root.insert(1,panel1)
+
+var panel = ui.Panel();
+panel.style().set({
+  width: '320px',
+});
+ui.root.insert(0,panel)
+
+var asset = 'Use Stored Shapefile'
+var draw = 'Draw a custom Polygon'
+var boundary
+var geometry
+var selectedboundary
+var imgDateList
+var iari_fullboundary = 'Choose IARI boundary'
+
+var rgbVis = {
+  min: 0.0,
+  max:3000,
+  bands: ['B4', 'B3', 'B2'],
+};
+
+var fccvis = {
+  min: 0.0,
+  max:3000,
+  bands: ['B8', 'B4', 'B3'],
+};
+
+var colorizedVis = {
+  min: 0.0,
+  max: 0.75,
+  palette: [
+    'FFFFFF', 'CE7E45', 'DF923D', 'F1B555', 'FCD163', '99B718', '74A901',
+    '66A000', '529400', '3E8601', '207401', '056201', '004C00', '023B01',
+    '012E01', '011D01', '011301'
+  ],
+};
+
+var soilVis ={palette: ['FFFFFF', 'CE7E45', 'DF923D', 'F1B555', 'FCD163', '99B718', '74A901','66A000', 
+'529400', '3E8601', '207401', '056201', '004C00', '023B01', '012E01', '011D01', '011301']}
+
+var ndvivis = {min: 1, max: 5, palette: ['#ce7e45','#fcd163','#99b718','#66a000', '#004c00']}//,'#011301']}//, '#008000']}
+
+var spectral = require("users/dmlmont/spectral:spectral");
+
+var logo = ee.Image('users/NePPA/Neppa_Symbol/NePPA_Logo_Final1').visualize({
+    bands:  ['b1', 'b2', 'b3'],
+    min: 0,
+    max: 255
+    });
+
+// var logo = ee.Image('users/tarunkondraju/IARI_NePPA/Neppa_Symbol/Logo_new').visualize({
+//     bands:  ['b1', 'b2', 'b3'],
+//     min: 0,
+//     max: 255
+//     });
+    
+var thumb = ui.Thumbnail({
+    image: logo,
+    params: {
+        dimensions: '642x291',
+        format: 'png'
+        },
+      style: {padding: '0px 0px 0px 20px', stretch: 'horizontal'},//, color: 'black'},     
+      // style: {stretch: 'horizontal'},
+      
+    });
+    
+var toolPanel = ui.Panel(thumb, 'flow', {width: '300px'});
+
+// var application_title = ui.Label('Near Real Time Crop Condition Monitoring', {fontWeight: 'bold', fontSize: '24px', textAlign: 'center'} )
+// var project_title = ui.Label('ICAR-Network Program on Precision Agriculture (NePPA)',{fontWeight: 'italic' , fontSize: '20px', textAlign: 'center'})
+// var department_name = ui.Label('Division of Agricultural Physics\nICAR-Indian Agricultural Research Institute, New-Delhi', {fontWeight: 'italic', fontSize: '16px', textAlign: 'center'})
+// var department_name = ui.Label('ICAR-Indian Agricultural Research Institute, New-Delhi', {padding: '0px 0px 0px 10px', fontWeight: 'italic', fontSize: '16px', textAlign: 'center'})
+// panel.add(toolPanel).add(application_title).add(project_title).add(department_name)
+//panel.add(toolPanel).add(department_name)
+panel.add(toolPanel)
+
+var resultspanel = ui.Label('Results Panel',{fontWeight: 'italic' , fontSize: '20px', textAlign: 'center'})
+panel1.add(resultspanel)
+
+var drawingTools = Map.drawingTools();
+drawingTools.setShown(false);
+
+while (drawingTools.layers().length() > 0) {
+  var layer = drawingTools.layers().get(0);
+  drawingTools.layers().remove(layer);
+}
+
+var emptygeometry = ui.Map.GeometryLayer({
+  geometries: null, 
+  name: 'geometry', 
+  //Opacity: 0.1,
+  color: '23cba7'});
+
+drawingTools.layers().add(emptygeometry);
+
+function clearGeometry() {
+  var layers = drawingTools.layers();
+  layers.get(0).geometries().remove(layers.get(0).geometries().get(0));
+}
+
+function drawPolygon() {
+  clearGeometry();
+  drawingTools.setDrawModes(['polygon'])
+  drawingTools.setShape('polygon');
+  drawingTools.draw();
+}
+
+var controlPanel = ui.Panel({
+  widgets: [
+    //ui.Label('If you want to draw polygon click me'),
+    ui.Button({
+      label: 'Click Me to Draw a Custom Polygon',
+      onClick: drawPolygon,
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'}
+    }),
+  ],
+  style: {position: 'bottom-left'},
+  layout: null,
+});
+
+var selectboundary = ui.Select({
+  items:[asset,  draw, iari_fullboundary],
+  placeholder:'Select Boundary Type',
+  style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+  onChange: (function(){
+    
+    if (selectboundary.getValue() == asset){
+      panel.add(boundaryinput)
+      panel.add(startdate).add(enddate).add(cloudcover)
+      panel.add(Generate_Image_Collection)
+      selectboundary.setDisabled(true)
+    }
+    
+    else if (selectboundary.getValue() == draw){
+      // panel.add(controlPanel)
+      drawingTools.setShown(true)
+      clearGeometry()
+      drawPolygon()
+      panel.add(startdate).add(enddate).add(cloudcover)
+      panel.add(Generate_Image_Collection)
+      selectboundary.setDisabled(true)
+    }
+    
+    else if (selectboundary.getValue() == iari_fullboundary){
+      
+      // panel.add(boundaryinput)
+      panel.add(startdate).add(enddate).add(cloudcover)
+      panel.add(showsoilmapbutton)
+      panel.add(Generate_Image_Collection)
+      selectboundary.setDisabled(true)
+      
+      var iari = ee.FeatureCollection('users/NePPA/IARI_Boundary/IARI_Outerboundary_Innerboundary')
+      boundary = iari.select('landuse = "Agriculture"')
+      var empty = ee.Image().byte();
+      var palette = ['FFE4E1','8fbc8f']//'ff7f50',]//,'8fbc8f']//['ff0000', 'ffff00'];
+      var iaricoloured = empty.paint(iari, 'Farm_Area').paint(iari, 0, 2);
+      Map.addLayer(
+        iaricoloured,
+        {
+          palette: ['000000'].concat(palette),
+          min: 0,
+          max: palette.length
+          
+        },
+        'IARI Boundary'
+      );
+      
+      var legend = ui.Panel({
+        style: {
+          position: 'bottom-left',
+          padding: '8px 15px'
+        }
+      });
+      
+      var legend2 = ui.Label({
+        value: 'IARI Land Use',
+        style: {
+          fontWeight: 'bold',
+          fontSize: '18px',
+          margin: '0 0 4px 0',
+          padding: '0'
+          }
+      });
+      
+      legend.add(legend2);
+      var content = function(color, label) {
+        var box = ui.Label({
+          style: {
+            backgroundColor: '#' + color,
+            padding: '9px',
+            margin: '0 0 4px 0'
+          }
+        });
+        var labels = ui.Label({
+          value: label,
+          style: {margin: '0 0 4px 6px'}
+        });
+        return ui.Panel({
+          widgets: [box, labels],
+          layout: ui.Panel.Layout.Flow('horizontal')
+        });
+      };
+      
+      var classcolor = ['FFE4E1','8fbc8f'];
+      var labelName = ['Built Area','Agriculture'];
+      for (var i = 0; i < 2; i++) {
+        legend.add(content(classcolor[i], labelName[i]));
+      }  
+      Map.add(legend);
+      Map.centerObject(boundary, 15)      
+    }
+  }),
+}); 
+panel.add(selectboundary);
+
+var boundaryinput = ui.Textbox({
+  style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+  placeholder: 'Link to Stored Shapefile: users/your_username/asset_name',
+  onChange: function(input) {
+    var userInput = input;
+  },
+});
+
+var startdate = ui.Textbox({
+  placeholder: 'Start date: yyyy-mm-dd', 
+  style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+})
+
+var enddate = ui.Textbox({
+  placeholder: 'End date: yyyy-mm-dd', 
+  style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+})
+
+var cloudcover = ui.Textbox({
+  placeholder: 'Cloud cover percentage, Eg: 25 ', 
+  style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+})
+
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-right',
+    padding: '8px 15px'
+  }
+});
+
+var legend2 = ui.Label({
+  value: 'Legend',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+    }
+});
+
+legend.add(legend2);
+var content = function(color, label) {
+  var box = ui.Label({
+    style: {
+      backgroundColor: '#' + color,
+      padding: '9px',
+      margin: '0 0 4px 0'
+    }
+  });
+  var labels = ui.Label({
+    value: label,
+    style: {margin: '0 0 4px 6px'}
+  });
+  return ui.Panel({
+    widgets: [box, labels],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  });
+};
+
+var classcolor = ['ce7e45','fcd163','99b718','66a000', '004c00'];
+var labelName = ['very Poor','Poor','Medium','Good','Very Good'];
+for (var i = 0; i < 5; i++) {
+  legend.add(content(classcolor[i], labelName[i]));
+}  
+//Map.add(legend);
+
+/////////////////////////////////////////////////////////////////////////////// Soil Layer Stack ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+var showsoilmapbutton = ui.Button({
+  style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+  label: 'Get Soil Properties of IARI',
+  onClick: function(){
+    var soilimg = ee.Image('users/NePPA/IARI_Soil_Data/All_Soil_Properties');
+    var img = soilimg.select(['b1','b2','b3','b4','b5','b6','b7','b8','b9','b10','b11','b12','b13','b14','b15','b16','b17','b18']).rename(['N', 'P', 'K','Fe', 'Cu', 'Zn','Mn', 'S', 'CEC','Silt', 'Sand', 'Clay','pH', 'PBS', 'ExNa','ExMg', 'ExK', 'ExCa']);
+    var imgviz = {min: 178, max: 352, palette: ['#ce7e45','#fcd163','#99b718','#66a000', '#004c00']}
+    //var img1 = img.select(['N', 'P', 'K'])
+    //var img2 = img.select(['Fe', 'Cu', 'Zn','Mn', 'S', 'CEC','Silt', 'Sand', 'Clay','Ph', 'PBS', 'ExNa','ExMg', 'ExK', 'ExCa'])
+    var n = Map.addLayer(img.select('N'),imgviz,'Soil Thematic Stack')
+    //var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get All Soil Properties')]);
+    var wavelengths =['N (Kg/ha)', 'P (Kg/ha)', 'K (Kg/ha)','Fe (ppm)', 'Cu (ppm)', 'Zn ((ppm)','Mn (ppm)', 'S (micro g/g)', 'CEC (meq/100g)','Silt (%)', 'Sand (%)', 'Clay (%)','pH', 'PBS (%)', 'ExNa','ExMg', 'ExK', 'ExCa']
+    //var wavelengths =['N (Kg/ha)', 'P (Kg/ha)', 'K (Kg/ha)','Fe (ppm)', 'Cu (ppm)', 'Zn ((ppm)','Mn (ppm)', 'S (micro g/g)', 'CEC (meq/100g)','Silt (%)', 'Sand (%)', 'Clay (%)','Ph', 'PBS (%)', 'ExNa','ExMg', 'ExK', 'ExCa']
+    
+    //Map.add(inspector);
+    // Map.onClick(function(hcoords) {
+    //     // Show the loading label.
+    //     inspector.widgets().set(0, ui.Label({
+    //       value: 'Soil Property Value',
+    //       style: {color: 'gray'}
+    //     }));
+    //   });
+      
+      var showInteractiveChart = true; 
+
+      if (showInteractiveChart === true){
+        var inspectorPanel = ui.Panel({
+          style:{
+            //width: '400px',
+            position: 'bottom-right',
+            stretch:  'horizontal'
+          }
+        });
+       panel1.add(inspectorPanel);        
+        
+        //Map.add(inspectorPanel);
+
+        Map.onClick(function(scoords) {
+          
+          inspectorPanel.clear();
+          
+          var point = ee.FeatureCollection(ee.Geometry.Point(scoords.lon, scoords.lat)).map(function(addLabels){
+            var labelNames = addLabels.set('Label_Simage','Soil Property Value');
+          return labelNames;
+          });
+
+          var soilchart = ui.Chart.image
+          .regions({
+            image: img, 
+            regions: point, 
+            reducer: ee.Reducer.mean(),
+            scale: 10,
+            seriesProperty: 'Graph Showing Soil Properties',
+            xLabels: wavelengths})
+          .setChartType('LineChart')//'ScatterChart')//'ColumnChart')
+          .setOptions({
+            title: 'Soil Property Value',
+            vAxis: {title: 'Value'},
+            hAxis: {title: 'Soil Property',
+            //ticks: xsoilLabels
+            },
+            lineWidth: 0,
+            pointSize: 4,
+            colors: ['ff0000']
+          });
+          
+          inspectorPanel.add(soilchart);            
+        });
+      }
+    // panel1.add(soilchart)
+    //Map.add(legend);
+  }
+})
+
+
+var Generate_Image_Collection = ui.Button({
+  label: 'Generate Image collection',
+  style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+  onClick: function(generatingimagecollection){
+   
+    boundaryinput.setDisabled(true)
+    startdate.setDisabled(true)
+    enddate.setDisabled(true)
+    cloudcover.setDisabled(true)
+   
+    ////////////////////////////////////////////////////////// Soil Map /////////////////////////////////////////////////////////////      
+   
+    var basemap = ui.Textbox({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      placeholder: 'Link to Soilmap Eg: Digital Soil Map',
+      onChange: function(input) {
+        var userInput = input;
+      },
+    });
+    
+    var basemaplabel = ui.Textbox({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      placeholder: 'Soilmap Label Eg: Soil Nitrogen Content (Kg/ha)',
+      onChange: function(input) {
+        var userInput = input;
+      },
+    });    
+
+    var showbasemapbutton = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display Soilmap',
+      onClick: function(){
+        
+        var soilpropertydisplay = ui.Textbox({
+          style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+          placeholder: 'Soil Property value',
+          onChange: function(input) {
+            var userInput = input;
+          },
+        });        
+  
+        var PBS1 = ee.Image(basemap.getValue()).clip(boundary)
+        //print(PBS1)
+        
+        var minvalue = (ee.Number.parse(ee.String((PBS1.reduceRegion(ee.Reducer.min(),boundary)).get('b1'))).round());    
+        //print(minvalue)
+        
+        var maxvalue = (ee.Number.parse(ee.String((PBS1.reduceRegion(ee.Reducer.max(),boundary)).get('b1'))).round());    
+        //print(maxvalue)
+        
+        var imageproperties = ee.Algorithms.Describe( PBS1 );
+        var pixel = ee.List( ee.Dictionary( ee.List(  ee.Dictionary( imageproperties ).get("bands") ).get(0) ).get("crs_transform") ).get(0);
+        //print(pixel)
+        
+        var PBSViz1 = {min: minvalue.getInfo(), max: maxvalue.getInfo(), palette: ['#ce7e45','#fcd163','#99b718','#66a000', '#004c00']}
+        var PBS = Map.addLayer((ee.Image(basemap.getValue()).clip(boundary)), PBSViz1, basemaplabel.getValue())
+
+        function makeColorBarParams(palette) {
+          return {
+            bbox: [0, 0, 1, 0.1],
+            dimensions: '100x10',
+            format: 'png',
+            min: 0,
+            max: 1,
+            palette: palette,
+          };
+        }
+          
+        var colorBar = ui.Thumbnail({
+          image: ee.Image.pixelLonLat().select(0),
+          params: makeColorBarParams(PBSViz1.palette),
+          style: {stretch: 'horizontal', margin: '0px 8px', maxHeight: '24px'},
+        });
+        
+        var legendLabels = ui.Panel({
+          widgets: [
+            ui.Label(minvalue.getInfo(), {margin: '4px 8px'}),
+            ui.Label(
+                ((maxvalue.getInfo()-minvalue.getInfo()) / 2+minvalue.getInfo()),
+                {margin: '4px 8px', textAlign: 'center', stretch: 'horizontal'}),
+            ui.Label(maxvalue.getInfo(), {margin: '4px 8px'})
+          ],
+          layout: ui.Panel.Layout.flow('horizontal')
+        });
+
+        // Legend title
+        var legendTitle = ui.Label({
+          value: basemaplabel.getValue(),
+          style: {fontWeight: 'bold'}
+        });
+
+        // Add the legendPanel to the map
+        var legendPanel = ui.Panel([legendTitle, colorBar, legendLabels]);
+        Map.add(legendPanel);
+      
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Basemap Pixel Values')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          var location = 'lon: ' + coords.lon.toFixed(4) + ' ' + 'lat: ' + coords.lat.toFixed(4);
+          var point = ee.Geometry.Point(coords.lon, coords.lat);
+          print(point);
+          var SoilValue = (PBS1.reduceRegion(ee.Reducer.first(), point, pixel.getInfo()))
+          .evaluate(function(val){
+            //var SoilValue = SoilValue.decodeJSON();
+            var SoilValueText = (JSON.stringify(val));
+            var SoilValueText2 = (SoilValueText.slice(6, 11))
+            soilpropertydisplay.setValue(basemaplabel.getValue()+' '+ SoilValueText2);
+            //panel.add(ui.Label(SoilValueText2));
+          });
+          //Map.layers().set(1, ui.Map.Layer(point, {color: 'FF0000'}));
+        });
+        panel1.add(soilpropertydisplay)
+      }
+    })
+    // panel.add(basemap).add(basemaplabel).add(minbasemap).add(maxbasemap).add(pixelsize).add(showbasemapbutton)
+    panel.add(basemap).add(basemaplabel).add(showbasemapbutton)
+    
+/////////////////////////////////////////////////////////////// Hyperspectral Drone Image ////////////////////////////////////////////////////////////////////////////////////////    
+    
+    var dronemap = ui.Textbox({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      placeholder: 'Link to Hyperspectral drone image',
+      onChange: function(input) {
+        var userInput = input;
+      },
+    });
+    
+    var displayhndvi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Hyperspectral Drone Image',
+      
+      onClick: function() {
+        Map.remove(legend);        
+        var hsimage = ee.Image(dronemap.getValue()).clip(boundary)
+        // print(hsimage)
+        
+        var drone_ndvi = ui.Textbox({
+          style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+          placeholder: 'Drone NDVI Value',
+          onChange: function(input) {
+            var userInput = input;
+          },
+        });
+        
+        var dronergbVis = {
+          min: 0,
+          max:1.0,
+          bands: ['b128', 'b73', 'b42'],
+        };
+        
+        var dronefccvis = {
+          min: 0,
+          max:1.0,
+          bands: ['b207', 'b128', 'b73'],
+        };
+        
+        var drone_ndvivis = {min: 1, max: 5, palette: ['#ce7e45','#fcd163','#99b718','#66a000', '#004c00']}//,'#011301']}//, '#008000']}
+        
+        var mask = hsimage.select('b1').gt(0);
+        hsimage = hsimage.updateMask(mask);
+        //print(hsimage)
+        
+        var drone_rgblayer = ui.Map.Layer(hsimage, dronergbVis, 'Drone_RGB');
+        var drone_fcclayer = ui.Map.Layer(hsimage, dronefccvis, 'Drone_FCC');
+        Map.add(drone_rgblayer);
+        Map.add(drone_fcclayer);
+        
+        var drone_hndvi = hsimage.normalizedDifference(['b207', 'b128'])
+        
+        var drone_hndvi1 = ee.Image(drone_hndvi)
+          .where(drone_hndvi.gt(0.0).and(drone_hndvi.lte(0.25)), 1)
+          .where(drone_hndvi.gt(0.25).and(drone_hndvi.lte(0.3)), 2)
+          .where(drone_hndvi.gt(0.3).and(drone_hndvi.lte(0.5)), 3)
+          .where(drone_hndvi.gt(0.5).and(drone_hndvi.lte(0.9)), 4)
+          .where(drone_hndvi.gt(0.9), 5)
+        
+        var drone_ndvilayer = ui.Map.Layer(drone_hndvi1, drone_ndvivis, 'NDVI')
+        Map.add(drone_ndvilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get Drone Spectral Signatrue')]);
+        panel1.add(inspector)
+        
+        var wavelengthsfull = [399,402,404,406,408,411,413,415,417,420,422,424,426,429,431,433,435,438,440,442,444,447,449,451,453,456,458,460,462,465,467,469,471,474,476,478,480,482,485,487,489,491,494,496,498,500,503,505,507,509,512,514,516,518,521,523,525,527,530,532,534,536,539,541,543,545,548,550,552,554,556,559,561,563,565,568,570,572,574,577,579,581,583,586,588,590,592,595,597,599,601,604,606,608,610,613,615,617,619,622,624,626,628,631,633,635,637,639,642,644,646,648,651,653,655,657,660,662,664,666,669,671,673,675,678,680,682,684,687,689,691,693,696,698,700,702,705,707,709,711,713,716,718,720,722,725,727,729,731,734,736,738,740,743,745,747,749,752,754,756,758,761,763,765,767,770,772,774,776,779,781,783,785,788,790,792,794,796,799,801,803,805,808,810,812,814,817,819,821,823,826,828,830,832,835,837,839,841,844,846,848,850,853,855,857,859,862,864,866,868,871,873,875,877,879,882,884,886,888,891,893,895,897,900,902,904,906,909,911,913,915,918,920,922,924,927,929,931,933,936,938,940,942,945,947,949,951,953,956,958,960,962,965,967,969,971,974,976,978,980,983,985,987,989,992,994,996,998,1001]
+        var hbandsfull = ee.List(['b1','b2','b3','b4','b5','b6','b7','b8','b9','b10','b11','b12','b13','b14','b15','b16','b17','b18','b19','b20','b21','b22','b23','b24','b25','b26','b27','b28','b29','b30','b31','b32','b33','b34','b35','b36','b37','b38','b39','b40','b41','b42','b43','b44','b45','b46','b47','b48','b49','b50','b51','b52','b53','b54','b55','b56','b57','b58','b59','b60','b61','b62','b63','b64','b65','b66','b67','b68','b69','b70','b71','b72','b73','b74','b75','b76','b77','b78','b79','b80','b81','b82','b83','b84','b85','b86','b87','b88','b89','b90','b91','b92','b93','b94','b95','b96','b97','b98','b99','b100','b101','b102','b103','b104','b105','b106','b107','b108','b109','b110','b111','b112','b113','b114','b115','b116','b117','b118','b119','b120','b121','b122','b123','b124','b125','b126','b127','b128','b129','b130','b131','b132','b133','b134','b135','b136','b137','b138','b139','b140','b141','b142','b143','b144','b145','b146','b147','b148','b149','b150','b151','b152','b153','b154','b155','b156','b157','b158','b159','b160','b161','b162','b163','b164','b165','b166','b167','b168','b169','b170','b171','b172','b173','b174','b175','b176','b177','b178','b179','b180','b181','b182','b183','b184','b185','b186','b187','b188','b189','b190','b191','b192','b193','b194','b195','b196','b197','b198','b199','b200','b201','b202','b203','b204','b205','b206','b207','b208','b209','b210','b211','b212','b213','b214','b215','b216','b217','b218','b219','b220','b221','b222','b223','b224','b225','b226','b227','b228','b229','b230','b231','b232','b233','b234','b235','b236','b237','b238','b239','b240','b241','b242','b243','b244','b245','b246','b247','b248','b249','b250','b251','b252','b253','b254','b255','b256','b257','b258','b259','b260','b261','b262','b263','b264','b265','b266','b267','b268','b269'])
+
+        var wavelengthsfull1 = ee.List(['399','402','404','406','408','411','413','415','417','420','422','424','426','429','431','433','435','438','440','442','444','447','449','451','453','456','458','460','462','465','467','469','471','474','476','478','480','482','485','487','489','491','494','496','498','500','503','505','507','509','512','514','516','518','521','523','525','527','530','532','534','536','539','541','543','545','548','550','552','554','556','559','561','563','565','568','570','572','574','577','579','581','583','586','588','590','592','595','597','599','601','604','606','608','610','613','615','617','619','622','624','626','628','631','633','635','637','639','642','644','646','648','651','653','655','657','660','662','664','666','669','671','673','675','678','680','682','684','687','689','691','693','696','698','700','702','705','707','709','711','713','716','718','720','722','725','727','729','731','734','736','738','740','743','745','747','749','752','754','756','758','761','763','765','767','770','772','774','776','779','781','783','785','788','790','792','794','796','799','801','803','805','808','810','812','814','817','819','821','823','826','828','830','832','835','837','839','841','844','846','848','850','853','855','857','859','862','864','866','868','871','873','875','877','879','882','884','886','888','891','893','895','897','900','902','904','906','909','911','913','915','918','920','922','924','927','929','931','933','936','938','940','942','945','947','949','951','953','956','958','960','962','965','967','969','971','974','976','978','980','983','985','987','989','992','994','996','998','999'])
+      //   print(wavelengthsfull)
+        
+        var hbandsfull1 = ee.List(['b001','b002','b003','b004','b005','b006','b007','b008','b009','b010','b011','b012',
+        'b013','b014','b015','b016','b017','b018','b019','b020','b021','b022','b023','b024','b025','b026','b027',
+        'b028','b029','b030','b031','b032','b033','b034','b035','b036','b037','b038','b039','b040','b041','b042',
+        'b043','b044','b045','b046','b047','b048','b049','b050','b051','b052','b053','b054','b055','b056','b057',
+        'b058','b059','b060','b061','b062','b063','b064','b065','b066','b067','b068','b069','b070','b071','b072',
+        'b073','b074','b075','b076','b077','b078','b079','b080','b081','b082','b083','b084','b085','b086','b087',
+        'b088','b089','b090','b091','b092','b093','b094','b095','b096','b097','b098','b099','b100','b101','b102',
+        'b103','b104','b105','b106','b107','b108','b109','b110','b111','b112','b113','b114','b115',
+        'b116','b117','b118','b119','b120','b121','b122','b123','b124','b125','b126','b127','b128',
+        'b129','b130','b131','b132','b133','b134','b135','b136','b137','b138','b139','b140','b141',
+        'b142','b143','b144','b145','b146','b147','b148','b149','b150','b151','b152','b153','b154',
+        'b155','b156','b157','b158','b159','b160','b161','b162','b163','b164','b165','b166','b167',
+        'b168','b169','b170','b171','b172','b173','b174','b175','b176','b177','b178','b179','b180',
+        'b181','b182','b183','b184','b185','b186','b187','b188','b189','b190','b191','b192','b193',
+        'b194','b195','b196','b197','b198','b199','b200','b201','b202','b203','b204','b205','b206',
+        'b207','b208','b209','b210','b211','b212','b213','b214','b215','b216','b217','b218','b219',
+        'b220','b221','b222','b223','b224','b225','b226','b227','b228','b229','b230','b231','b232',
+        'b233','b234','b235','b236','b237','b238','b239','b240','b241','b242','b243','b244','b245',
+        'b246','b247','b248','b249','b250','b251','b252','b253','b254','b255','b256','b257','b258',
+        'b259','b260','b261','b262','b263','b264','b265','b266','b267','b268','b269'])
+      //   print(hbandsfull)
+
+        // var hbands = ee.List(['b1','b2','b3','b4','b5','b6','b7','b8','b9','b10','b11','b12','b13'])
+        // var hbands1 = ee.List(['blue','green','red1','red2','re1','re2','re3','nir1','nir2','nir3','nir4','nir5','nir6'])
+        // var wavelengths =[490,560,665,685,705,740,783,820,842,860,900,945,970]
+        // important band number = 
+        
+        var himg = hsimage.select(hbandsfull,hbandsfull1)
+        //print(himg);
+ 
+ 
+
+        Map.onClick(function(hcoords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Hyperspectral Drone Spectral Signature ',
+            style: {color: 'gray'}
+          }));
+        });
+        
+        var showInteractiveChart = true; 
+        
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+
+          Map.onClick(function(hcoords) {
+            
+            inspectorPanel.clear();
+            
+            var point = ee.FeatureCollection(ee.Geometry.Point(hcoords.lon, hcoords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('Label_hsimage','Hyperspectral Drone NDVI');
+            return labelNames;
+            });
+            
+            // var DroneNDVIValue = (ee.Number.parse(ee.String((drone_hndvi.reduceRegion(ee.Reducer.first(),point)).get('b1'))));
+            // drone_ndvi.setValue('Drone NDVI value:' +' '+ DroneNDVIValue);
+            
+            var DroneNDVIValue = (drone_hndvi.reduceRegion(ee.Reducer.first(), point, 0.04))
+            .evaluate(function(val){
+              //var SoilValue = SoilValue.decodeJSON();
+              var DroneNDVIValueText = (JSON.stringify(val));
+              var DroneNDVIValueText2 = (DroneNDVIValueText.slice(6, 11))
+              drone_ndvi.setValue('Hyperspectral Drone NDVI value:' +' '+ DroneNDVIValueText2);
+              //panel.add(ui.Label(SoilValueText2));
+            });
+            //Map.layers().set(1, ui.Map.Layer(point, {color: 'FF0000'}));            
+            
+            var hchart = ui.Chart.image.regions(himg, point, ee.Reducer.mean(),0.04,'pixel spectral vaues',wavelengthsfull)
+            .setOptions({
+              title: 'Spectral Signature of Hyperspectral Drone pixel',
+              vAxis: {title: 'Pixel Reflectance (%)'},
+              hAxis: {viewWindow: {min: 390, max: 1000}, title: 'Wavelength (Nanometer)'},
+              lineWidth: 1,
+              pointSize: 4,
+            });
+            
+            //hchart.setOptions({title: 'Spectral signature of selected signature'});
+            inspectorPanel.add(hchart);            
+          })
+        panel1.add(drone_ndvi)
+        }
+        Map.add(legend);        
+      }
+    })
+    
+    panel.add(dronemap).add(displayhndvi)
+    
+    
+//////////////////////////////////////////////////////////////////////////////////////// Multispectral Drone Image //////////////////////////////////////////////////////////////////////////
+
+    var mdronemap = ui.Textbox({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      placeholder: 'Link to Multispectral drone image',
+      onChange: function(input) {
+        var userInput = input;
+      },
+    });
+    
+    var displaymndvi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Multispectral Drone Image',
+      
+      onClick: function() {
+        Map.remove(legend);        
+        var hsimage = ee.Image(mdronemap.getValue()).clip(boundary)
+        // print(hsimage)
+        
+        var drone_ndvi = ui.Textbox({
+          style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+          placeholder: 'Multispectral Drone NDVI Value',
+          onChange: function(input) {
+            var userInput = input;
+          },
+        });
+        
+        var dronergbVis = {
+          min: 0,
+          max:65520,
+          bands: ['b3', 'b2', 'b1'],
+        };
+        
+        var dronefccvis = {
+          min: 0,
+          max:65520,
+          bands: ['b5', 'b3', 'b2'],
+        };
+        
+        var drone_ndvivis = {min: 1, max: 5, palette: ['#ce7e45','#fcd163','#99b718','#66a000', '#004c00']}//,'#011301']}//, '#008000']}
+        
+        var mask = hsimage.select('b1').gt(0);
+        hsimage = hsimage.updateMask(mask);
+        //print(hsimage)
+        
+        var drone_rgblayer = ui.Map.Layer(hsimage, dronergbVis, 'Drone_RGB');
+        var drone_fcclayer = ui.Map.Layer(hsimage, dronefccvis, 'Drone_FCC');
+        Map.add(drone_rgblayer);
+        Map.add(drone_fcclayer);
+        
+        var drone_hndvi = hsimage.normalizedDifference(['b5', 'b3'])
+        
+        var drone_hndvi1 = ee.Image(drone_hndvi)
+          .where(drone_hndvi.gt(0.0).and(drone_hndvi.lte(0.25)), 1)
+          .where(drone_hndvi.gt(0.25).and(drone_hndvi.lte(0.3)), 2)
+          .where(drone_hndvi.gt(0.3).and(drone_hndvi.lte(0.5)), 3)
+          .where(drone_hndvi.gt(0.5).and(drone_hndvi.lte(0.65)), 4)
+          .where(drone_hndvi.gt(0.65), 5)
+        
+        var drone_ndvilayer = ui.Map.Layer(drone_hndvi1, drone_ndvivis, 'NDVI')
+        Map.add(drone_ndvilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get Multispectral Drone Spectral Signatrue')]);
+        panel1.add(inspector)
+
+        var hbands = ee.List(['b1','b2','b3','b4','b5'])
+        var hbands1 = ee.List(['blue','green','red','rededge','nir'])
+        var wavelengths =[475, 560, 668, 717, 860]
+        
+        var himg = hsimage.select(hbands)
+        //print(himg);
+
+        Map.onClick(function(hcoords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Spectral Signature of Multispectral Drone Image',
+            style: {color: 'gray'}
+          }));
+        });
+        
+        var showInteractiveChart = true; 
+        
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+
+          Map.onClick(function(hcoords) {
+            
+            inspectorPanel.clear();
+            
+            var point = ee.FeatureCollection(ee.Geometry.Point(hcoords.lon, hcoords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('Label_hsimage','Multispectral Drone NDVI');
+            return labelNames;
+            });
+            
+            // var DroneNDVIValue = (ee.Number.parse(ee.String((drone_hndvi.reduceRegion(ee.Reducer.first(),point)).get('b1'))));
+            // drone_ndvi.setValue('Drone NDVI value:' +' '+ DroneNDVIValue);
+            
+            var DroneNDVIValue = (drone_hndvi.reduceRegion(ee.Reducer.first(), point, 0.04))
+            .evaluate(function(val){
+              //var SoilValue = SoilValue.decodeJSON();
+              var DroneNDVIValueText = (JSON.stringify(val));
+              var DroneNDVIValueText2 = (DroneNDVIValueText.slice(6, 11))
+              drone_ndvi.setValue('Multispectral Drone NDVI value:' +' '+ DroneNDVIValueText2);
+              //panel.add(ui.Label(SoilValueText2));
+            });
+            //Map.layers().set(1, ui.Map.Layer(point, {color: 'FF0000'}));            
+            
+            var hchart = ui.Chart.image.regions(himg, point, ee.Reducer.mean(),0.04,'pixel spectral vaues',wavelengths)
+            .setOptions({
+              title: 'Spectral Signature of Multispectral Drone Pixel',
+              vAxis: {title: 'Pixel Reflectance (%)'},
+              hAxis: {viewWindow: {min: 460, max: 860}, title: 'Wavelength(Nanometer)'},
+              lineWidth: 1,
+              pointSize: 4,
+            });
+            
+            //hchart.setOptions({title: 'Spectral signature of selected signature'});
+            inspectorPanel.add(hchart);            
+          })
+        panel1.add(drone_ndvi)
+        }
+        Map.add(legend);        
+      }
+    })
+    
+    panel.add(mdronemap).add(displaymndvi)
+    
+////////////////////////////////////////////////////////////////////// Thermal drone Image //////////////////////////////////////////////////////////////////////////////    
+
+    var tdronemap = ui.Textbox({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      placeholder: 'Link to Thermal drone image',
+      onChange: function(input) {
+        var userInput = input;
+      },
+    });
+    
+    var displayheatmap = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Thermal Drone Image',
+      
+      onClick: function() {
+        Map.remove(legend);        
+        var thimage = ee.Image(tdronemap.getValue()).clip(boundary)
+        // print(hsimage)
+        
+        var drone_heatmap = ui.Textbox({
+          style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+          placeholder: 'Temperature in Celcius',
+          onChange: function(input) {
+            var userInput = input;
+          },
+        });
+        
+
+        var thermalVis = {min: 0, max: 5, palette: ['#ce7e45','#fcd163','#99b718','#66a000', '#004c00']};
+        
+        var mask = thimage.select('b1').gt(0);
+        thimage = thimage.updateMask(mask);
+        //print(thimage)
+        
+        var heatlayer = ee.Image(thimage)
+          .where(thimage.gt(0.0).and(thimage.lte(10)), 1)
+          .where(thimage.gt(10).and(thimage.lte(15)), 2)
+          .where(thimage.gt(15).and(thimage.lte(20)), 3)
+          .where(thimage.gt(20).and(thimage.lte(25)), 4)
+          .where(thimage.gt(25), 5)
+        
+        var drone_heatlayer = ui.Map.Layer(heatlayer, thermalVis, 'Thermal Image')
+        Map.add(drone_heatlayer);
+
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside the Thermal Image to get Temperature values')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(hcoords) {
+
+            
+            //inspectorPanel.clear();
+            
+            var point = ee.FeatureCollection(ee.Geometry.Point(hcoords.lon, hcoords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('Label_thimage','Temperature (Celcius');
+            return labelNames;
+            });
+            
+            var DronethValue = (thimage.reduceRegion(ee.Reducer.first(), point, 0.04))
+            .evaluate(function(val){
+              //var SoilValue = SoilValue.decodeJSON();
+              var DronethValueText = (JSON.stringify(val));
+              var DronethValueText2 = (DronethValueText.slice(6, 11));
+              drone_heatmap.setValue('Temperature value (Celcius):' +' '+ DronethValueText2);
+              //panel.add(ui.Label(SoilValueText2));
+            });
+            //Map.layers().set(1, ui.Map.Layer(point, {color: 'FF0000'}));            
+            
+                  
+          });
+        panel1.add(drone_heatmap);
+        Map.add(legend);        
+        }
+      //}
+    });
+    
+    panel.add(tdronemap).add(displayheatmap);
+
+    
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////    
+
+    if (selectboundary.getValue() == draw){
+      boundary = drawingTools.layers().get(0).getEeObject();
+      drawingTools.setShape(null);
+      print('selected boundary:',boundary);
+    }
+    if (selectboundary.getValue() == asset){
+      boundary = ee.FeatureCollection(ee.String(boundaryinput.getValue()));
+      print('selected boundary:',boundary);
+    }
+    if (selectboundary.getValue() == iari_fullboundary){
+      boundary = ee.FeatureCollection('users/NePPA/IARI_Boundary/IARI_Outerboundary_Innerboundary').filter('landuse == "Agriculture"');
+      //boundary = iari.select('landuse = "Agriculture"')
+      print('selected boundary:', boundary);
+    }
+        
+    var fieldinfo = ui.Textbox({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      placeholder: 'Link to file with field information: users/your_username/asset_name',
+      onChange: function(input) {
+        var userInput = input;
+      },
+    });
+    
+    var fieldinfobutton = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display the Field Data',
+      
+      onClick: function(){
+        
+        //Map.remove(fielddatafile)
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Inside The Field file To Get Agriculture Field Information')]);
+        panel1.add(inspector);
+        var fielddatafile = ee.FeatureCollection(ee.String(fieldinfo.getValue()));
+        //Map.remove(fielddatafile)
+        
+        Map.onClick(function(coords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        
+      
+          // Determine the mean NDVI, a server operation.
+          
+          var point = ee.Geometry.Point(coords.lon, coords.lat);
+          var click_point = ee.Geometry.Point(coords.lon, coords.lat);
+
+          
+          inspector.widgets().set(0, ui.Label({
+            value: 'Loading...',
+            style: {color: 'gray'}
+          }));
+          
+          var list = fielddatafile.reduceColumns(ee.Reducer.toList(), ['Field_Name']).get('list');
+          var shp_lst = fielddatafile.toList(fielddatafile.size());
+         
+          var retIdx = shp_lst.map(function (ele) {
+            var idx = shp_lst.indexOf(ele);
+            return ee.Algorithms.If(ee.Feature(ele).intersects(click_point), idx, 0);
+          }).removeAll([0]);
+        
+          retIdx = retIdx.get(0).getInfo();
+          var name = ee.List(list).get(retIdx);
+          var crop_list = fielddatafile.reduceColumns(ee.Reducer.toList(),  ['Crop__Exp']).get('list');
+          var shp_lst1 = fielddatafile.toList(fielddatafile.size());
+          
+          var retIdx1 = shp_lst1.map(function (ele) {
+            var idx1 = shp_lst1.indexOf(ele);
+            return ee.Algorithms.If(ee.Feature(ele).intersects(click_point), idx1, 0);
+          }).removeAll([0]);
+        
+          retIdx1 = retIdx1.get(0).getInfo();
+          var crop_name = ee.List(crop_list).get(retIdx1);
+          fielddatafile.evaluate(function(result) {
+            inspector.widgets().set(0, ui.Label({
+              value: 'Field Name: '+ name.getInfo() 
+              +'; Crop: '+ crop_name.getInfo()
+            }));
+          });
+        });
+          
+        var empty = ee.Image().byte();
+        var boundary1 = empty.paint({
+          featureCollection: fielddatafile,
+          color: '1',
+          width: '3'
+        });
+        Map.addLayer(boundary1, {palette: 'BLACK', max: 14}, 'IARI Agriculture Blocks');
+      }
+    });
+    panel.add(fieldinfo).add(fieldinfobutton); 
+
+    
+    function maskS2clouds(image) {
+      var qa = image.select('QA60');
+      var cloudBitMask = 1 << 10;
+      var cirrusBitMask = 1 << 11;
+      var mask = qa.bitwiseAnd(cloudBitMask).eq(0).and(
+                qa.bitwiseAnd(cirrusBitMask).eq(0));
+      return image.updateMask(mask)
+        .select("B.*")
+        .copyProperties(image, ["system:time_start"]);
+    }
+  
+    function clp(image) {
+      return image.clip(boundary);
+    }
+  
+    function mosaicByDate(imcol){
+      
+      var imlist = imcol.toList(imcol.size());
+    
+      var unique_dates = imlist.map(function(im){
+        return ee.Image(im).date().format("YYYY-MM-dd");
+      }).distinct();
+    
+      var mosaic_imlist = unique_dates.map(function(d){
+        d = ee.Date(d);
+    
+      var im = imcol
+        .filterDate(d, d.advance(1, "day"))
+        .mosaic();
+    
+      return im.set(
+        "system:time_start", d.millis(), 
+        "system:id", d.format("YYYY-MM-dd"));
+      });
+    
+      return ee.ImageCollection(mosaic_imlist);
+    }
+      
+    var dataset = ee.ImageCollection('COPERNICUS/S2_SR')
+      .filter(ee.Filter.date(startdate.getValue(),enddate.getValue()))
+      .filterBounds(boundary)
+      .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',ee.Number.parse(cloudcover.getValue())))
+      .map(maskS2clouds);
+    print(dataset,'Collection1')
+    
+
+    var dataset_mosaic = mosaicByDate(dataset);
+    var clip = dataset_mosaic.map(clp).sort('system:time_start', true);
+    var imgDateList = clip.aggregate_array('system:id');
+    print(imgDateList);
+    //print(dataset);
+    print(clip);
+    Map.centerObject(boundary, 15);
+      
+    var selectMenu = ui.Select({
+      items: imgDateList.getInfo(),
+      onChange: renderDateImage,
+      placeholder:'Select Date',
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'}
+    });
+    panel.add(selectMenu);
+  
+    function renderDateImage(value) {
+      var image = ee.Image(clip.filter(ee.Filter.eq('system:id',value)).first());
+      var image1 = image.divide(10000);
+      print(image1)
+
+      var rgblayer = ui.Map.Layer(image, rgbVis, 'RGB');
+      var fcclayer = ui.Map.Layer(image, fccvis, 'FCC');
+      
+      var empty = ee.Image().byte();
+      var aoi = empty.paint({
+        featureCollection: boundary,
+        color: '1',
+        width: '3'
+      });
+      Map.add(rgblayer);
+      Map.add(fcclayer);
+      
+      var bandsIn = ee.List(['B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B11','B12']);
+      var bandsOut = ee.List(['cb','blue','green','red','re1','re2','re3','nir1','nir2','waterVapor','swir1','swir2']);
+      var wavelengths =[443.9,496.6,559,664.5,703.9,740.2,782.5,835.1,864.8,945,1613.7,2202.4];
+      var img = image1.select(bandsIn,bandsOut);
+      
+      var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get The Sentinel Pixel Spectral Signature')]);
+      panel1.add(inspector);
+       
+      Map.onClick(function(hcoords) {
+        // Show the loading label.
+        inspector.widgets().set(0, ui.Label({
+          value: 'Spectral Signature of Sentinel Image',
+          style: {color: 'gray'}
+        }));
+      });
+      
+      var showInteractiveChart = true; 
+      
+      if (showInteractiveChart === true){
+        var inspectorPanel = ui.Panel({
+          style:{
+            //width: '400px',
+            position: 'bottom-right',
+            stretch:  'horizontal'
+          }
+        });
+        panel1.add(inspectorPanel);
+
+        Map.onClick(function(scoords) {
+          
+          inspectorPanel.clear();
+          
+          var point = ee.FeatureCollection(ee.Geometry.Point(scoords.lon, scoords.lat)).map(function(addLabels){
+            var labelNames = addLabels.set('Label_Simage','Spectral Signature of Sentinel Image');
+          return labelNames;
+          });
+        
+          var hchart = ui.Chart.image.regions(img, point, ee.Reducer.mean(),0.04,'Spectral Signature of Sentinel Image',wavelengths)
+          .setOptions({
+            title: 'Spectral Signature of Sentinel Image',
+            vAxis: {title: 'Pixel Reflectance (%)'},
+            hAxis: {title: 'Wavelengths(Nanometer)'},
+            lineWidth: 1,
+            pointSize: 4,
+          });
+          
+          // hchart.setOptions({title: 'Spectral signature of selected signature'});
+          inspectorPanel.add(hchart);            
+        });
+      }
+    }
+//////////////////////////////////////////////////////////////////////////NDVI//////////////////////////////////////////////////////////////////
+      
+    var selectndvi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display NDVI Image For Selected Date',
+      
+      onClick: function() {
+        Map.remove(legend);
+        var addNDVI = function(image) {
+          var NDVI = image.normalizedDifference(['B8', 'B4'])
+            .rename('NDVI')
+            .copyProperties(image,['system:time_start'])
+          return image.addBands(NDVI);
+        }
+          
+        var clip_NDVI = clip.map(addNDVI).select('NDVI')
+        print(clip_NDVI)
+    
+        var ndvi = ee.Image(clip_NDVI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        
+        var ndvi1 = ee.Image(ndvi)
+          .where(ndvi.gt(0.0).and(ndvi.lte(0.25)), 1)
+          .where(ndvi.gt(0.25).and(ndvi.lte(0.3)), 2)
+          .where(ndvi.gt(0.3).and(ndvi.lte(0.5)), 3)
+          .where(ndvi.gt(0.5).and(ndvi.lte(0.65)), 4)
+          .where(ndvi.gt(0.65), 5)
+  
+        var ndvilayer = ui.Map.Layer(ndvi1, ndvivis, 'NDVI')
+        Map.add(ndvilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get NDVI Information')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+          
+          
+        //   var point = ee.Geometry.Point(coords.lon, coords.lat);
+        //   var reduce = clip_NDVI.reduce(ee.Reducer.first());
+        //   var sampledPoint = reduce.reduceRegion(ee.Reducer.first(), point, 30);
+        //   var computedValue = sampledPoint.get('first');
+        //   var click_point = ee.Geometry.Point(coords.lon, coords.lat);
+        });
+        
+        var showInteractiveChart = true; 
+        
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+
+          Map.onClick(function(coords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(coords.lon, coords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('label_NDVI', 'NDVI');
+            return labelNames;
+            });
+
+            var inspectorChart = ui.Chart.image.seriesByRegion(clip_NDVI, point, ee.Reducer.mean(),'NDVI', 10,'system:id', 'label_NDVI')
+            .setOptions({
+              title: 'NDVI Time Series for Selected Pixel',
+              vAxis: {title: 'NDVI Value',viewWindow: {min: -1, max: 1}},
+              hAxis: {title: 'Date'},
+              lineWidth: 1,
+              pointSize: 4,              
+            });
+            //inspectorChart.setOptions({title: 'NDVI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          });
+        }
+        
+        function downloadImg() {
+          //var boundary1 = ee.Geometry(boundary)
+          if (selectboundary.getValue() == draw){
+            var boundingregion = boundary
+          }
+          else {
+            var boundingregion = boundary.geometry()
+          }
+          
+          var downloadvis = {min: 1, max: 5, palette: ['ce7e45','fcd163','99b718','66a000', '004c00']}//,'#011301']}//, '#008000']}
+          var downloadArgs = {
+            name: 'NDVI Image',
+            //crs: projection.crs,
+            //crsTransform: projection.transform,
+            scale: 10,
+            region: boundingregion,
+            filePerBand:false
+         };
+         var url = ndvi1.visualize(downloadvis).getDownloadURL(downloadArgs);
+         urlLabel.setUrl(url);
+         urlLabel.style().set({shown: true});
+        }
+        
+        // Add UI elements to the Map.
+        var downloadButton = ui.Button('Download NDVI Image', downloadImg);
+        var urlLabel = ui.Label('NDVI image url', {shown: false});
+        //var panel = ui.Panel([downloadButton, urlLabel]);
+        panel1.add(downloadButton).add(urlLabel);        
+        Map.add(legend);
+      }
+    })
+    panel.add(selectndvi)
+    
+   //////////////////////////////////////////////////////////////////////EVI ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    var selectevi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display EVI Image For Selected Date',
+
+      onClick: function() {
+        Map.remove(legend);
+        var addEVI=function(image){
+          var EVI = image.expression(
+            '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))', {
+            'NIR' : image.select('B8').divide(10000),
+            'RED' : image.select('B4').divide(10000),
+            'BLUE': image.select('B2').divide(10000)}).rename('EVI');
+            return image.addBands(EVI);
+        };
+          
+        var clip_EVI = clip.map(addEVI).select('EVI')
+        print(clip_EVI)
+    
+        var evi = ee.Image(clip_EVI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        var evi1 = ee.Image(evi)
+          .where(evi.gt(0.0).and(evi.lte(0.25)), 1)
+          .where(evi.gt(0.25).and(evi.lte(0.3)), 2)
+          .where(evi.gt(0.3).and(evi.lte(0.5)), 3)
+          .where(evi.gt(0.5).and(evi.lte(0.65)), 4)
+          .where(evi.gt(0.65), 5)
+  
+        var evilayer = ui.Map.Layer(evi1, ndvivis, 'EVI')
+        Map.add(evilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get EVI Values')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        });
+        
+        var showInteractiveChart = true; 
+        
+        //Inspector Chart
+        // Create a panel to hold the chart.
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+          
+          // Register a function to draw a chart when a user clicks on the map.
+          Map.onClick(function(coords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(coords.lon, coords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('label_EVI', 'EVI');
+            return labelNames;
+            });
+          
+            //Chart to display data history of clicked point
+            var inspectorChart = ui.Chart.image.seriesByRegion(clip_EVI, point, ee.Reducer.mean(),'EVI', 10,'system:id', 'label_EVI')
+            .setOptions({
+              title: 'EVI Time Series For Selected Pixel',
+              vAxis: {title: 'EVI', viewWindow: {min: -1, max: 1}},
+              hAxis: {title: 'Year'},
+              lineWidth: 1,
+              pointSize: 4,
+            });
+            //inspectorChart.setOptions({title: 'EVI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          
+          });
+        }
+        
+        function downloadImg() {
+          //var boundary1 = ee.Geometry(boundary)
+          if (selectboundary.getValue() == draw){
+            var boundingregion = boundary
+          }
+          else {
+            var boundingregion = boundary.geometry()
+          }
+          
+          var downloadvis = {min: 1, max: 5, palette: ['ce7e45','fcd163','99b718','66a000', '004c00']}//,'#011301']}//, '#008000']}
+          var downloadArgs = {
+            name: 'EVI Image',
+            //crs: projection.crs,
+            //crsTransform: projection.transform,
+            scale: 10,
+            region: boundingregion,
+            filePerBand:false
+         };
+         var url = evi1.visualize(downloadvis).getDownloadURL(downloadArgs);
+         urlLabel.setUrl(url);
+         urlLabel.style().set({shown: true});
+        }
+        
+        // Add UI elements to the Map.
+        var downloadButton = ui.Button('Download EVI Image', downloadImg);
+        var urlLabel = ui.Label('EVI image url', {shown: false});
+        //var panel = ui.Panel([downloadButton, urlLabel]);
+        panel1.add(downloadButton).add(urlLabel);       
+        Map.add(legend);        
+      }
+    })
+    panel.add(selectevi)
+    
+//////////////////////////////////////////////////////////////////////// NDMI ////////////////////////////////////////////////////////////////////////////
+    var selectndmi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display NDMI Image For Selected Date',
+
+      onClick: function() {
+        Map.remove(legend);        
+        var addNDMI = function(image) {
+          var NDMI = image.normalizedDifference(['B8', 'B11'])
+            .rename('NDMI')
+            .copyProperties(image,['system:time_start'])
+          return image.addBands(NDMI);
+        }
+          
+        var clip_NDMI = clip.map(addNDMI).select('NDMI')
+        print(clip_NDMI)
+    
+        var ndmi = ee.Image(clip_NDMI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        var ndmi1 = ee.Image(ndmi)
+          .where(ndmi.gt(0.0).and(ndmi.lte(0.2)), 1)
+          .where(ndmi.gt(0.2).and(ndmi.lte(0.4)), 2)
+          .where(ndmi.gt(0.4).and(ndmi.lte(0.6)), 3)
+          .where(ndmi.gt(0.6).and(ndmi.lte(0.8)), 4)
+          .where(ndmi.gt(0.8), 5)
+  
+        var ndmilayer = ui.Map.Layer(ndmi1, ndvivis, 'NDMI')
+        Map.add(ndmilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get NDMI Values')]);
+        panel1.add(inspector)
+ 
+        Map.onClick(function(coords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        });
+        
+        var showInteractiveChart = true; 
+        
+        //Inspector Chart
+        // Create a panel to hold the chart.
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+          
+          // Register a function to draw a chart when a user clicks on the map.
+          Map.onClick(function(coords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(coords.lon, coords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('label_NDMI', 'NDMI');
+            return labelNames;
+            });
+          
+            //Chart to display data history of clicked point
+            var inspectorChart = ui.Chart.image.seriesByRegion(clip_NDMI, point, ee.Reducer.mean(),'NDMI', 10,'system:id', 'label_NDMI')
+            .setOptions({
+              title: 'NDMI Time Series for Selected Pixel',
+              vAxis: {title: 'NDMI', viewWindow: {min: -1, max: 1}},
+              hAxis: {title: 'Year'},
+              lineWidth: 1,
+              pointSize: 4,
+            });
+            //inspectorChart.setOptions({title: 'NDMI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          
+          });
+        }
+        
+        function downloadImg() {
+          //var boundary1 = ee.Geometry(boundary)
+          if (selectboundary.getValue() == draw){
+            var boundingregion = boundary
+          }
+          else {
+            var boundingregion = boundary.geometry()
+          }
+          
+          var downloadvis = {min: 1, max: 5, palette: ['ce7e45','fcd163','99b718','66a000', '004c00']}//,'#011301']}//, '#008000']}
+          var downloadArgs = {
+            name: 'NDMI Image',
+            //crs: projection.crs,
+            //crsTransform: projection.transform,
+            scale: 10,
+            region: boundingregion,
+            filePerBand:false
+         };
+         var url = ndmi1.visualize(downloadvis).getDownloadURL(downloadArgs);
+         urlLabel.setUrl(url);
+         urlLabel.style().set({shown: true});
+        }
+        
+        // Add UI elements to the Map.
+        var downloadButton = ui.Button('Download NDMI Image', downloadImg);
+        var urlLabel = ui.Label('NDMI image url', {shown: false});
+        //var panel = ui.Panel([downloadButton, urlLabel]);
+        panel1.add(downloadButton).add(urlLabel);       
+        Map.add(legend);        
+      }
+    })
+    panel.add(selectndmi)
+    
+//////////////////////////////////////////////////////////// NDWI //////////////////////////////////////////////////////////////////////////    
+    
+    var selectndwi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display NDWI Image For Selected Date',
+
+      onClick: function() {
+        Map.remove(legend);
+        var addNDWI = function(image) {
+          var NDWI = image.normalizedDifference(['B3', 'B8'])
+            .rename('NDWI')
+            .copyProperties(image,['system:time_start'])
+          return image.addBands(NDWI);
+        }
+          
+        var clip_NDWI = clip.map(addNDWI).select('NDWI')
+        print(clip_NDWI)
+    
+        var ndwi = ee.Image(clip_NDWI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        var ndwi1 = ee.Image(ndwi)
+          .where(ndwi.gt(-1.0).and(ndwi.lte(-0.3)), 1)
+          .where(ndwi.gt(-0.3).and(ndwi.lte(0.0)), 2)
+          .where(ndwi.gt(0.0).and(ndwi.lte(0.2)), 3)
+          .where(ndwi.gt(0.2).and(ndwi.lte(0.65)), 4)
+          .where(ndwi.gt(0.65), 5)
+  
+        var ndwilayer = ui.Map.Layer(ndwi1, ndvivis, 'NDWI')
+        Map.add(ndwilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get NDWI Values')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        });
+      
+        var showInteractiveChart = true; 
+
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+          
+          // Register a function to draw a chart when a user clicks on the map.
+          Map.onClick(function(coords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(coords.lon, coords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('label_NDWI', 'NDWI');
+            return labelNames;
+            });
+          
+            //Chart to display data history of clicked point
+            var inspectorChart = ui.Chart.image.seriesByRegion(clip_NDWI, point, ee.Reducer.mean(),'NDWI', 10,'system:id', 'label_NDWI')
+            .setOptions({
+              title: 'NDWI Time Series for Selected Pixel',
+              vAxis: {title: 'NDWI', viewWindow: {min: -1, max: 1}},
+              hAxis: {title: 'Year'},
+              lineWidth: 1,
+              pointSize: 4,
+            });
+            //inspectorChart.setOptions({title: 'NDWI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          
+          });
+        }
+        
+        function downloadImg() {
+          //var boundary1 = ee.Geometry(boundary)
+          if (selectboundary.getValue() == draw){
+            var boundingregion = boundary
+          }
+          else {
+            var boundingregion = boundary.geometry()
+          }
+          
+          var downloadvis = {min: 1, max: 5, palette: ['ce7e45','fcd163','99b718','66a000', '004c00']}//,'#011301']}//, '#008000']}
+          var downloadArgs = {
+            name: 'NDWI Image',
+            //crs: projection.crs,
+            //crsTransform: projection.transform,
+            scale: 10,
+            region: boundingregion,
+            filePerBand:false
+         };
+         var url = ndwi1.visualize(downloadvis).getDownloadURL(downloadArgs);
+         urlLabel.setUrl(url);
+         urlLabel.style().set({shown: true});
+        }
+        
+        // Add UI elements to the Map.
+        var downloadButton = ui.Button('Download NDWI Image', downloadImg);
+        var urlLabel = ui.Label('NDWI image url', {shown: false});
+        //var panel = ui.Panel([downloadButton, urlLabel]);
+        panel1.add(downloadButton).add(urlLabel);               
+        Map.add(legend);  
+      }
+    });
+    panel.add(selectndwi);
+    
+    //////////////////////////////////////////////// ARVI ////////////////////////////////////////////////////////////////////////////////////
+    
+    var selectarvi = ui.Button({
+      
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display ARVI Image For Selected Date',
+      onClick: function() {
+        Map.remove(legend);        
+        var addARVI=function(image){
+         var ARVI = image.expression(
+           '(NIR - RED - 0.106 * (RED - BLUE))/ (NIR + RED - 0.106*(RED-BLUE))', {
+           'NIR' : image.select('B8').divide(10000),
+           'RED' : image.select('B4').divide(10000),
+           'BLUE': image.select('B2').divide(10000)}).rename('ARVI');
+         return image.addBands(ARVI);
+        };
+          
+        var clip_ARVI = clip.map(addARVI).select('ARVI')
+        print(clip_ARVI)
+    
+        var arvi = ee.Image(clip_ARVI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        var arvi1 = ee.Image(arvi)
+          .where(arvi.gt(0.0).and(arvi.lte(0.25)), 1)
+          .where(arvi.gt(0.25).and(arvi.lte(0.3)), 2)
+          .where(arvi.gt(0.3).and(arvi.lte(0.5)), 3)
+          .where(arvi.gt(0.5).and(arvi.lte(0.65)), 4)
+          .where(arvi.gt(0.65), 5)
+  
+        var arvilayer = ui.Map.Layer(arvi1, ndvivis, 'ARVI')
+        Map.add(arvilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get ARVI Values')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          // Show the loading label.
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        });
+      
+
+        var showInteractiveChart = true; 
+
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+          
+          Map.onClick(function(coords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(coords.lon, coords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('label_ARVI', 'ARVI');
+            return labelNames;
+            });
+        
+            var inspectorChart = ui.Chart.image.seriesByRegion(clip_ARVI, point, ee.Reducer.mean(),'ARVI', 10,'system:id', 'label_ARVI')
+            .setOptions({
+              title: 'ARVI Time Series for Selected Pixel',
+              vAxis: {title: 'ARVI', viewWindow: {min: -1, max: 1}},
+              hAxis: {title: 'Year'},
+              lineWidth: 1,
+              pointSize: 4,
+            });
+            //inspectorChart.setOptions({title: 'ARVI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          });
+        }
+        
+        function downloadImg() {
+          //var boundary1 = ee.Geometry(boundary)
+          if (selectboundary.getValue() == draw){
+            var boundingregion = boundary
+          }
+          else {
+            var boundingregion = boundary.geometry()
+          }
+          
+          var downloadvis = {min: 1, max: 5, palette: ['ce7e45','fcd163','99b718','66a000', '004c00']}//,'#011301']}//, '#008000']}
+          var downloadArgs = {
+            name: 'ARVI Image',
+            //crs: projection.crs,
+            //crsTransform: projection.transform,
+            scale: 10,
+            region: boundingregion,
+            filePerBand:false
+         };
+         var url = arvi1.visualize(downloadvis).getDownloadURL(downloadArgs);
+         urlLabel.setUrl(url);
+         urlLabel.style().set({shown: true});
+        }
+        
+        // Add UI elements to the Map.
+        var downloadButton = ui.Button('Download ARVI Image', downloadImg);
+        var urlLabel = ui.Label('ARVI image url', {shown: false});
+        //var panel = ui.Panel([downloadButton, urlLabel]);
+        panel1.add(downloadButton).add(urlLabel);       
+        Map.add(legend);        
+      }
+    })
+    panel.add(selectarvi)
+    
+   /////////////////////////////////////////////////// SAVI///////////////////////////////////////////////////////////
+    
+    var selectsavi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display SAVI Image For Selected Date',
+      onClick: function() {
+        Map.remove(legend);
+        var addSAVI=function(image){
+         var SAVI = image.expression(
+           '(NIR - RED) / (NIR + RED + 0.428) * (1.0 + 0.428)', {
+           'NIR' : image.select('B8').divide(10000),
+           'RED' : image.select('B4').divide(10000),
+           'BLUE': image.select('B2').divide(10000)}).rename('SAVI');
+         return image.addBands(SAVI);
+        };
+          
+        var clip_SAVI = clip.map(addSAVI).select('SAVI')
+        print(clip_SAVI)
+    
+        var savi = ee.Image(clip_SAVI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        var savi1 = ee.Image(savi)
+          .where(savi.gt(0.0).and(savi.lte(0.25)), 1)
+          .where(savi.gt(0.25).and(savi.lte(0.3)), 2)
+          .where(savi.gt(0.3).and(savi.lte(0.5)), 3)
+          .where(savi.gt(0.5).and(savi.lte(0.65)), 4)
+          .where(savi.gt(0.65), 5)
+  
+        var savilayer = ui.Map.Layer(savi1, ndvivis, 'SAVI')
+        Map.add(savilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get SAVI Values')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        });
+        
+        var showInteractiveChart = true; 
+        
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+          
+          // Register a function to draw a chart when a user clicks on the map.
+          Map.onClick(function(coords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(coords.lon, coords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('label_SAVI', 'SAVI');
+            return labelNames;
+            });
+          
+            //Chart to display data history of clicked point
+            var inspectorChart = ui.Chart.image.seriesByRegion(clip_SAVI, point, ee.Reducer.mean(),'SAVI', 10,'system:id', 'label_SAVI')
+            .setOptions({
+              title: 'SAVI Time Series for Selected Pixel',
+              vAxis: {title: 'SAVI', viewWindow: {min: -1, max: 1}},
+              hAxis: {title: 'Year'},
+              lineWidth: 1,
+              pointSize: 4,
+              
+            });
+            //inspectorChart.setOptions({title: 'SAVI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          });
+        }
+        
+        function downloadImg() {
+          //var boundary1 = ee.Geometry(boundary)
+          if (selectboundary.getValue() == draw){
+            var boundingregion = boundary
+          }
+          else {
+            var boundingregion = boundary.geometry()
+          }
+          
+          var downloadvis = {min: 1, max: 5, palette: ['ce7e45','fcd163','99b718','66a000', '004c00']}//,'#011301']}//, '#008000']}
+          var downloadArgs = {
+            name: 'SAVI Image',
+            //crs: projection.crs,
+            //crsTransform: projection.transform,
+            scale: 10,
+            region: boundingregion,
+            filePerBand:false
+         };
+         var url = savi1.visualize(downloadvis).getDownloadURL(downloadArgs);
+         urlLabel.setUrl(url);
+         urlLabel.style().set({shown: true});
+        }
+        
+        // Add UI elements to the Map.
+        var downloadButton = ui.Button('Download SAVI Image', downloadImg);
+        var urlLabel = ui.Label('SAVI image url', {shown: false});
+        //var panel = ui.Panel([downloadButton, urlLabel]);
+        panel1.add(downloadButton).add(urlLabel);       
+        Map.add(legend);
+      }
+    })
+    panel.add(selectsavi)
+
+//////////////////////////////////////////////////////////// NCHI /////////////////////////////////////////////////////////////
+
+    var selectchi = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Display NCHI Image For Selected Date',
+ 
+      onClick: function() {
+        Map.remove(legend);        
+        var addCHI=function(image){
+          //var mosaic = ee.Image(clip.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+          var parameters = {
+          	'C1': 6.0,
+          	'C2': 7.5,
+          	'L': 1.0,
+          	'alpha': 0.1,
+          	'beta': 0.05,
+          	'c': 1.0,
+          	'cexp': 1.16,
+          	'g': 2.5,
+          	'gamma': 1.0,
+          	'nexp': 2.0,
+          	'omega': 2.0,
+          	'p': 2.0,
+          	'sigma': 0.5,
+          	'sla': 1.0,
+          	'slb': 0.5,
+          	'A'	: image.select('B1'),
+          	'B'	: image.select('B2'),
+          	'G' : image.select('B3'),
+          	'R' : image.select('B4'),
+          	'RE1' :	image.select('B5'),
+          	'RE2' :	image.select('B6'),
+          	'RE3' :	image.select('B7'),
+          	'N' : image.select('B8'),
+          	'N2' :	image.select('B8A'),
+          	'S1' :	image.select('B11'),
+          	'S2' :	image.select('B12'),
+          };
+          var S2 = spectral.computeIndex(image,['AFRI1600','AFRI2100','ARI','ARI2','ARVI','ATSAVI','AVI','BCC','BNDVI','BWDRVI','CIG','CIRE','CVI','DVI','EVI','EVI2','ExG','ExGR','ExR','FCVI','GARI','GBNDVI','GCC','GDVI','GEMI','GLI','GM1','GM2','GNDVI','GOSAVI','GRNDVI','GRVI','GSAVI','GVMI','IAVI','IKAW','IPVI','IRECI','MCARI','MCARI1','MCARI2','MCARI705','MCARIOSAVI','MCARIOSAVI705','MGRVI','MNDVI','MNLI','MRBVI','MSAVI','MSI','MSR','MSR705','MTCI','MTVI1','MTVI2','ND705','NDDI','NDII','NDMI','NDPI','NDREI','NDVI','NDVI705','NDYI','NGRDI','NIRv','NLI','NMDI','NRFIg','NRFIr','NormG','NormNIR','NormR','OCVI','OSAVI','PSRI','RCC','RDVI','REDSI','RENDVI','RGBVI','RGRI','RI','RVI','S2REP','SARVI','SAVI','SAVI2','SI','SIPI','SR','SR2','SR3','SR555','SR705','SeLI','TCARI','TCARIOSAVI','TCARIOSAVI705','TCI','TDVI','TGI','TRRVI','TSAVI','TTVI','TVI','TriVI','VARI','VARI700','VI700','VIG','WDRVI','WDVI','mND705','mSR705','MBWI','MLSWI26','MLSWI27','MNDWI','MuWIR','NDVIMNDWI','NDWI','NWI','S2WI','SWM','WI1','WI2','WRI'],parameters);
+          var CHI = S2.expression('(ATSAVI*0.132)+	(GOSAVI*0.128)+	(GSAVI*0.128)+	(MSAVI*0.131)+	(OSAVI*0.132)+	(SARVI*0.117)+	(SAVI*0.132)+	(SAVI2*0.131)+	(TSAVI*0.132)+	(CIG*0.128)+	(CIRE*0.129)+	(EVI2*0.132)+	(GDVI*0.131)+	(GM1*0.128)+	(GM2*0.13)+	(GNDVI*0.128)+	(GRNDVI*0.131)+	(IAVI*0.129)+	(IPVI*0.132)+	(IRECI*0.129)+	(MCARI1*0.13)+	(ND705*0.131)+	(NDREI*0.13)+	(NDVI*0.132)+	(NDVI705*0.131)+	(RENDVI*0.131)+	(SR*0.131)+	(SR555*0.128)+	(SR705*0.13)+	(WDRVI*0.132)+	(WDVI*0.129)+	(mND705*0.129)+	(GRVI*0.128)+	(NormNIR*0.131)+	(DVI*0.129)+	(MSR705*0.131)+	(NDPI*0.296)+	(SeLI*0.303)+	(MTVI1*0.304)+	(MTVI2*0.303)+	(NLI*0.295)+	(NIRv*0.303)+	(MCARI2*0.303)+	(RDVI*0.307)+	(MSR*0.305)+	(TVI*0.305)',{
+            "ATSAVI":S2.select("ATSAVI"),
+            "GOSAVI":S2.select("GOSAVI"),
+            "GSAVI":S2.select("GSAVI"),
+            "MSAVI":S2.select("MSAVI"),
+            "OSAVI":S2.select("OSAVI"),
+            "SARVI":S2.select("SARVI"),
+            "SAVI":S2.select("SAVI"),
+            "SAVI2":S2.select("SAVI2"),
+            "TSAVI":S2.select("TSAVI"),
+            "CIG":S2.select("CIG"),
+            "CIRE":S2.select("CIRE"),
+            "EVI2":S2.select("EVI2"),
+            "GDVI":S2.select("GDVI"),
+            "GM1":S2.select("GM1"),
+            "GM2":S2.select("GM2"),
+            "GNDVI":S2.select("GNDVI"),
+            "GRNDVI":S2.select("GRNDVI"),
+            "IAVI":S2.select("IAVI"),
+            "IPVI":S2.select("IPVI"),
+            "IRECI":S2.select("IRECI"),
+            "MCARI1":S2.select("MCARI1"),
+            "ND705":S2.select("ND705"),
+            "NDREI":S2.select("NDREI"),
+            "NDVI":S2.select("NDVI"),
+            "NDVI705":S2.select("NDVI705"),
+            "RENDVI":S2.select("RENDVI"),
+            "SR":S2.select("SR"),
+            "SR555":S2.select("SR555"),
+            "SR705":S2.select("SR705"),
+            "WDRVI":S2.select("WDRVI"),
+            "WDVI":S2.select("WDVI"),
+            "mND705":S2.select("mND705"),
+            "GRVI":S2.select("GRVI"),
+            "NormNIR":S2.select("NormNIR"),
+            "DVI":S2.select("DVI"),
+            "MSR705":S2.select("MSR705"),
+            "NDPI":S2.select("NDPI"),
+            "SeLI":S2.select("SeLI"),
+            "MTVI1":S2.select("MTVI1"),
+            "MTVI2":S2.select("MTVI2"),
+            "NLI":S2.select("NLI"),
+            "NIRv":S2.select("NIRv"),
+            "MCARI2":S2.select("MCARI2"),
+            "RDVI":S2.select("RDVI"),
+            "MSR":S2.select("MSR"),
+            "TVI":S2.select("TVI")
+          }).rename('CHI');
+         return image.addBands(CHI);
+        }
+        
+        var clip_CHI = clip.map(addCHI).select('CHI')
+        print(clip_CHI,'chi_imagecollection')
+        
+        // var CHIimage = ee.Image(clip_CHI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        
+        // var chiminvalue = (ee.Number.parse(ee.String((CHIimage.reduceRegion(ee.Reducer.min(),boundary,10)).values().get(0))).round());    
+        // print(chiminvalue)
+        
+        // var chimaxvalue = (ee.Number.parse(ee.String((CHIimage.reduceRegion(ee.Reducer.max(),boundary,10)).values().get(0))).round());    
+        // print(chimaxvalue)
+        
+        //var PBSViz1 = {min: minvalue.getInfo(), max: maxvalue.getInfo(), palette: ['#ce7e45','#fcd163','#99b718','#66a000', '#004c00']}
+
+        var chinormcol = clip_CHI.map(function(image){
+          var chiminvalue = (ee.Number.parse(ee.String((image.reduceRegion(ee.Reducer.min(),boundary,10)).values().get(0))).round());    
+          //print(chiminvalue)
+        
+          var chimaxvalue = (ee.Number.parse(ee.String((image.reduceRegion(ee.Reducer.max(),boundary,10)).values().get(0))).round());    
+          //print(chimaxvalue)
+          var CHInorm = (image.subtract(chiminvalue)).divide(chimaxvalue.subtract(chiminvalue))
+          return image.addBands(CHInorm).copyProperties(image)
+        })
+        print(chinormcol,'chinormalcollection')
+        var normalized_CHI = chinormcol.select('CHI_1')
+        print(normalized_CHI,'Chi_Normal_Collection_imp')
+        
+        
+        var CHInorm = ee.Image(normalized_CHI.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+        // var CHInorm = (CHIimage.subtract(chiminvalue)).divide(chimaxvalue.subtract(chiminvalue))
+        // print(CHInorm,'normalized CHI')
+        // Map.addLayer(CHInorm)
+        
+        var chinormminvalue = (ee.Number.parse(ee.String((CHInorm.reduceRegion(ee.Reducer.min(),boundary,10)).values().get(0))).round());    
+        print(chinormminvalue)
+        
+        var chinormmaxvalue = (ee.Number.parse(ee.String((CHInorm.reduceRegion(ee.Reducer.max(),boundary,10)).values().get(0))).round());    
+        print(chinormmaxvalue)
+        
+        var CHInorm1 = ee.Image(CHInorm)
+          .where(CHInorm.gt(0.0).and(CHInorm.lte(0.25)), 1)
+          .where(CHInorm.gt(0.25).and(CHInorm.lte(0.3)), 2)
+          .where(CHInorm.gt(0.3).and(CHInorm.lte(0.5)), 3)
+          .where(CHInorm.gt(0.5).and(CHInorm.lte(0.65)), 4)
+          .where(CHInorm.gt(0.65), 5)
+        
+  
+        var chilayer = ui.Map.Layer(CHInorm1, ndvivis, 'NCHI')
+        //var chilayer = ui.Map.Layer(chi1, ndvivis, 'NCHI')
+        Map.add(chilayer)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary To Get NCHI Values')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        });
+        
+        var showInteractiveChart = true; 
+        
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+          
+          // Register a function to draw a chart when a user clicks on the map.
+          Map.onClick(function(coords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(coords.lon, coords.lat)).map(function(addLabels){
+              var labelNames = addLabels.set('label_CHI', 'NCHI');
+            return labelNames;
+            });
+          
+            //Chart to display data history of clicked point
+            var inspectorChart = ui.Chart.image.seriesByRegion(normalized_CHI, point, ee.Reducer.mean(),'CHI_1', 10,'system:id', 'label_CHI')
+            .setOptions({
+              title: 'NCHI Time Series for Selected Pixel',
+              vAxis: {title: 'NCHI', viewWindow: {min: 0, max: 1}},
+              hAxis: {title: 'Year'},
+              lineWidth: 1,
+              pointSize: 4,
+            });
+            //inspectorChart.setOptions({title: 'SAVI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          });
+        }
+        
+        function downloadImg() {
+          //var boundary1 = ee.Geometry(boundary)n
+          if (selectboundary.getValue() == draw){
+            var boundingregion = boundary
+          }
+          else {
+            var boundingregion = boundary.geometry()
+          }
+          
+          var downloadvis = {min: 1, max: 5, palette: ['ce7e45','fcd163','99b718','66a000', '004c00']}//,'#011301']}//, '#008000']}
+          var downloadArgs = {
+            name: 'CHI Image',
+            //crs: projection.crs,
+            //crsTransform: projection.transform,
+            scale: 10,
+            region: boundingregion,
+            filePerBand:false
+         };
+         var url = chi1.visualize(downloadvis).getDownloadURL(downloadArgs);
+         urlLabel.setUrl(url);
+         urlLabel.style().set({shown: true});
+        }
+        
+        // Add UI elements to the Map.
+        var downloadButton = ui.Button('Download CHI Image', downloadImg);
+        var urlLabel = ui.Label('CHI image url', {shown: false});
+        //var panel = ui.Panel([downloadButton, urlLabel]);
+        panel1.add(downloadButton).add(urlLabel);       
+        Map.add(legend);
+      }
+    })
+    panel.add(selectchi)
+
+//////////////////////////////////////////////////////////// onlygraphs /////////////////////////////////////////////////////
+    var onlygraphs = ui.Button({
+      style: {padding: '0px 10px', stretch: 'horizontal', color: 'black'},
+      label: 'Generate Temporal Graphs For All Indices',
+      onClick: function() { 
+    
+        var addNDVI = function(image) {
+          var NDVI = image.normalizedDifference(['B8', 'B4'])
+          .rename('NDVI')
+          .copyProperties(image,['system:time_start'])
+          return image.addBands(NDVI);
+        };
+        
+        var addEVI=function(image){
+          var EVI = image.expression(
+            '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))', {
+            'NIR' : image.select('B8').divide(10000),
+            'RED' : image.select('B4').divide(10000),
+            'BLUE': image.select('B2').divide(10000)}).rename('EVI')
+            .copyProperties(image,['system:time_start'])
+            return image.addBands(EVI);
+        };     
+       
+        // var addNDSI = function(img){ 
+        //   var NDSI = img.normalizedDifference(['B2', 'B5']) // calculate normalized dif between band 4 and band 3 (B4-B3/B4_B3)
+        //                 .multiply(1000) // scale results by 1000
+        //                 .select([0], ['NDSI']) // name the band
+        //                 //.set('system:time_start', img.get('system:time_start'));
+        //   return NDSI;
+        // };
+        
+          
+        var addSAVI=function(image){
+         var SAVI = image.expression(
+           '(NIR - RED) / (NIR + RED + 0.428) * (1.0 + 0.428)', {
+           'NIR' : image.select('B8').divide(10000),
+           'RED' : image.select('B4').divide(10000),
+           'BLUE': image.select('B2').divide(10000)}).rename('SAVI')
+           .copyProperties(image,['system:time_start'])
+         return image.addBands(SAVI);
+        };
+        
+        var addARVI=function(image){
+         var ARVI = image.expression(
+           '(NIR - RED - 0.106 * (RED - BLUE))/ (NIR + RED - 0.106*(RED-BLUE))', {
+           'NIR' : image.select('B8').divide(10000),
+           'RED' : image.select('B4').divide(10000),
+           'BLUE': image.select('B2').divide(10000)}).rename('ARVI')
+           .copyProperties(image,['system:time_start'])
+         return image.addBands(ARVI);
+        };
+
+        var addNDMI = function(image) {
+          var NDMI = image.normalizedDifference(['B8', 'B11'])
+            .rename('NDMI')
+            .copyProperties(image,['system:time_start'])
+          return image.addBands(NDMI);
+        }
+        
+        var addNDWI = function(image) {
+          var NDWI = image.normalizedDifference(['B3', 'B8'])
+            .rename('NDWI')
+            .copyProperties(image,['system:time_start'])
+          return image.addBands(NDWI);
+        }
+       
+ 
+         var addCHI=function(image){
+          //var mosaic = ee.Image(clip.filter(ee.Filter.eq('system:id',selectMenu.getValue())).first())
+          var parameters = {
+          	'C1': 6.0,
+          	'C2': 7.5,
+          	'L': 1.0,
+          	'alpha': 0.1,
+          	'beta': 0.05,
+          	'c': 1.0,
+          	'cexp': 1.16,
+          	'g': 2.5,
+          	'gamma': 1.0,
+          	'nexp': 2.0,
+          	'omega': 2.0,
+          	'p': 2.0,
+          	'sigma': 0.5,
+          	'sla': 1.0,
+          	'slb': 0.5,
+          	'A'	: image.select('B1'),
+          	'B'	: image.select('B2'),
+          	'G' : image.select('B3'),
+          	'R' : image.select('B4'),
+          	'RE1' :	image.select('B5'),
+          	'RE2' :	image.select('B6'),
+          	'RE3' :	image.select('B7'),
+          	'N' : image.select('B8'),
+          	'N2' :	image.select('B8A'),
+          	'S1' :	image.select('B11'),
+          	'S2' :	image.select('B12'),
+          };
+          var S2 = spectral.computeIndex(image,['AFRI1600','AFRI2100','ARI','ARI2','ARVI','ATSAVI','AVI','BCC','BNDVI','BWDRVI','CIG','CIRE','CVI','DVI','EVI','EVI2','ExG','ExGR','ExR','FCVI','GARI','GBNDVI','GCC','GDVI','GEMI','GLI','GM1','GM2','GNDVI','GOSAVI','GRNDVI','GRVI','GSAVI','GVMI','IAVI','IKAW','IPVI','IRECI','MCARI','MCARI1','MCARI2','MCARI705','MCARIOSAVI','MCARIOSAVI705','MGRVI','MNDVI','MNLI','MRBVI','MSAVI','MSI','MSR','MSR705','MTCI','MTVI1','MTVI2','ND705','NDDI','NDII','NDMI','NDPI','NDREI','NDVI','NDVI705','NDYI','NGRDI','NIRv','NLI','NMDI','NRFIg','NRFIr','NormG','NormNIR','NormR','OCVI','OSAVI','PSRI','RCC','RDVI','REDSI','RENDVI','RGBVI','RGRI','RI','RVI','S2REP','SARVI','SAVI','SAVI2','SI','SIPI','SR','SR2','SR3','SR555','SR705','SeLI','TCARI','TCARIOSAVI','TCARIOSAVI705','TCI','TDVI','TGI','TRRVI','TSAVI','TTVI','TVI','TriVI','VARI','VARI700','VI700','VIG','WDRVI','WDVI','mND705','mSR705','MBWI','MLSWI26','MLSWI27','MNDWI','MuWIR','NDVIMNDWI','NDWI','NWI','S2WI','SWM','WI1','WI2','WRI'],parameters);
+          var CHI = S2.expression('(ATSAVI*0.132)+	(GOSAVI*0.128)+	(GSAVI*0.128)+	(MSAVI*0.131)+	(OSAVI*0.132)+	(SARVI*0.117)+	(SAVI*0.132)+	(SAVI2*0.131)+	(TSAVI*0.132)+	(CIG*0.128)+	(CIRE*0.129)+	(EVI2*0.132)+	(GDVI*0.131)+	(GM1*0.128)+	(GM2*0.13)+	(GNDVI*0.128)+	(GRNDVI*0.131)+	(IAVI*0.129)+	(IPVI*0.132)+	(IRECI*0.129)+	(MCARI1*0.13)+	(ND705*0.131)+	(NDREI*0.13)+	(NDVI*0.132)+	(NDVI705*0.131)+	(RENDVI*0.131)+	(SR*0.131)+	(SR555*0.128)+	(SR705*0.13)+	(WDRVI*0.132)+	(WDVI*0.129)+	(mND705*0.129)+	(GRVI*0.128)+	(NormNIR*0.131)+	(DVI*0.129)+	(MSR705*0.131)+	(NDPI*0.296)+	(SeLI*0.303)+	(MTVI1*0.304)+	(MTVI2*0.303)+	(NLI*0.295)+	(NIRv*0.303)+	(MCARI2*0.303)+	(RDVI*0.307)+	(MSR*0.305)+	(TVI*0.305)',{
+            "ATSAVI":S2.select("ATSAVI"),
+            "GOSAVI":S2.select("GOSAVI"),
+            "GSAVI":S2.select("GSAVI"),
+            "MSAVI":S2.select("MSAVI"),
+            "OSAVI":S2.select("OSAVI"),
+            "SARVI":S2.select("SARVI"),
+            "SAVI":S2.select("SAVI"),
+            "SAVI2":S2.select("SAVI2"),
+            "TSAVI":S2.select("TSAVI"),
+            "CIG":S2.select("CIG"),
+            "CIRE":S2.select("CIRE"),
+            "EVI2":S2.select("EVI2"),
+            "GDVI":S2.select("GDVI"),
+            "GM1":S2.select("GM1"),
+            "GM2":S2.select("GM2"),
+            "GNDVI":S2.select("GNDVI"),
+            "GRNDVI":S2.select("GRNDVI"),
+            "IAVI":S2.select("IAVI"),
+            "IPVI":S2.select("IPVI"),
+            "IRECI":S2.select("IRECI"),
+            "MCARI1":S2.select("MCARI1"),
+            "ND705":S2.select("ND705"),
+            "NDREI":S2.select("NDREI"),
+            "NDVI":S2.select("NDVI"),
+            "NDVI705":S2.select("NDVI705"),
+            "RENDVI":S2.select("RENDVI"),
+            "SR":S2.select("SR"),
+            "SR555":S2.select("SR555"),
+            "SR705":S2.select("SR705"),
+            "WDRVI":S2.select("WDRVI"),
+            "WDVI":S2.select("WDVI"),
+            "mND705":S2.select("mND705"),
+            "GRVI":S2.select("GRVI"),
+            "NormNIR":S2.select("NormNIR"),
+            "DVI":S2.select("DVI"),
+            "MSR705":S2.select("MSR705"),
+            "NDPI":S2.select("NDPI"),
+            "SeLI":S2.select("SeLI"),
+            "MTVI1":S2.select("MTVI1"),
+            "MTVI2":S2.select("MTVI2"),
+            "NLI":S2.select("NLI"),
+            "NIRv":S2.select("NIRv"),
+            "MCARI2":S2.select("MCARI2"),
+            "RDVI":S2.select("RDVI"),
+            "MSR":S2.select("MSR"),
+            "TVI":S2.select("TVI")
+          }).rename('CHI');
+         return image.addBands(CHI);
+        }
+        
+        var clip_CHI = clip.map(addCHI).select('CHI')
+        //print(clip_CHI,'chi_imagecollection')
+        
+        var chinormcol = clip_CHI.map(function(image){
+          var chiminvalue = (ee.Number.parse(ee.String((image.reduceRegion(ee.Reducer.min(),boundary,10)).values().get(0))).round());    
+          //print(chiminvalue)
+        
+          var chimaxvalue = (ee.Number.parse(ee.String((image.reduceRegion(ee.Reducer.max(),boundary,10)).values().get(0))).round());    
+          //print(chimaxvalue)
+          var CHInorm = (image.subtract(chiminvalue)).divide(chimaxvalue.subtract(chiminvalue))
+          return image.addBands(CHInorm).copyProperties(image)
+        })
+        
+        chinormcol = chinormcol.select('CHI_1')
+        print(chinormcol,'NCHI_collection')
+
+        var clip_NDVI = clip.map(addNDVI)//.select('NDVI')
+        var clip_EVI = clip_NDVI.map(addEVI)//.select('EVI')
+        var clip_SAVI = clip_EVI.map(addSAVI)//.select('SAVI')
+        var clip_ARVI = clip_SAVI.map(addARVI)//.select('ARVI')
+        var clip_NDMI = clip_ARVI.map(addNDMI)//.select('NDMI')
+        var clip_NDWI = clip_NDMI.map(addNDWI)//.select('NDWI')
+       // var clip_NCHI = clip_NDWI.map(chinormcol.select('CHI_1'))
+       //print(clip_CHI)
+
+        // clip.map(addNDVI)
+        // clip.map(addEVI)
+        // clip.map(addSAVI)
+        // clip.map(addARVI)
+        // clip.map(addNDMI)
+        // clip.map(addNDWI)
+        
+        var indicesgraphs = clip_NDWI.select(['NDVI','EVI','SAVI','ARVI','NDMI','NDWI']) 
+        print(indicesgraphs)
+        
+        Map.style().set('cursor', 'crosshair');
+        var inspector = ui.Panel([ui.Label('Click Any Pixel Inside The Boundary For Temporal spectral Curves')]);
+        panel1.add(inspector)
+        
+        Map.onClick(function(coords) {
+          inspector.widgets().set(0, ui.Label({
+            value: 'Crop Condition ',
+            style: {color: 'gray'}
+          }));
+        });
+        
+        var showInteractiveChart = true; 
+        
+        if (showInteractiveChart === true){
+          var inspectorPanel = ui.Panel({
+            style:{
+              //width: '400px',
+              position: 'bottom-right',
+              stretch:  'horizontal'
+            }
+          });
+          panel1.add(inspectorPanel);
+          
+          // Register a function to draw a chart when a user clicks on the map.
+          Map.onClick(function(icoords) {
+            inspectorPanel.clear();
+            var point = ee.FeatureCollection(ee.Geometry.Point(icoords.lon, icoords.lat))
+            // .map(function(addLabels){
+            //   var labelNames = addLabels.set('Label_Indices', 'SAVI');
+            // return labelNames;
+            // });
+          
+            //Chart to display data history of clicked point
+            var inspectorChart = ui.Chart.image.series({
+              imageCollection: indicesgraphs,
+              region: point,
+              reducer: ee.Reducer.mean(),
+              scale: 10,
+              //seriesProperty: ['NDVI','EVI','SAVI','ARVI','NDMI','NDWI']g
+            })
+             // ee.Reducer.mean(),10)//, 'indicesgraphs',10,'system:id','Indices')
+            //.setSeriesNames([indicesgraphs.get(0),indicesgraphs.get(1),indicesgraphs.get(2),indicesgraphs.get(3),indicesgraphs.get(4),indicesgraphs.get(5)])
+            //.setSeriesNames(['NDVI','EVI','SAVI','ARVI','NDMI','NDWI'])
+            .setOptions({
+              title: 'Time Series of Various Indices for Selected Pixel',
+              vAxis: {title: 'Pixel Value', viewWindow: {min: -1, max: 1}},
+              hAxis: {title: 'Date'},
+              lineWidth: 1,
+              pointSize: 4,
+              series: {
+                0: {color: '50d643'},
+                1: {color: 'ff0404'},
+                2: {color: '0b4a8b'},
+                3: {color: '0e4c0c'},
+                4: {color: '6495ED'},
+                5: {color: '00FFFF'},
+                //6: {color: 'A9A9A9'}
+                },
+              chartArea: {backgroundColor: 'EBEBEB'}
+            });
+            //inspectorChart.setOptions({title: 'SAVI value for requested pixel'});
+            inspectorPanel.add(inspectorChart);
+          });
+        }
+      }
+    })
+    panel.add(onlygraphs)
+    
+    var Reset=ui.Button({
+      label: "Reset",
+      onClick: function () {
+        Map.clear()
+        // Map.add(boundary);        
+        //Map.add(legend)
+        drawingTools.setShown(false);
+        panel1.clear();
+        
+        if (selectboundary.getValue() == draw){
+          boundary = drawingTools.layers().get(0).getEeObject();
+          drawingTools.setShape(null);
+        Map.addLayer(boundary, {palette: 'BLACK', max: 14}, 'Coustom Boundary')
+          Map.centerObject(boundary, 15)  
+          //print('selected boundary:',boundary);
+        }
+        if (selectboundary.getValue() == asset){
+          boundary = ee.FeatureCollection(ee.String(boundaryinput.getValue()));
+        Map.addLayer(boundary, {palette: 'BLACK', max: 14}, 'Coustom Boundary')
+          Map.centerObject(boundary, 15)  
+          //print('selected boundary:',boundary);
+        }
+        if (selectboundary.getValue() == iari_fullboundary){
+          boundary = ee.FeatureCollection('users/NePPA/IARI_Boundary/IARI_Outerboundary_Innerboundary').filter('landuse == "Agriculture"');
+          //boundary = iari.select('landuse = "Agriculture"')
+          //print('selected boundary:', boundary);
+          var iari = ee.FeatureCollection('users/NePPA/IARI_Boundary/IARI_Outerboundary_Innerboundary')
+          //boundary = iari.select('landuse = "Agriculture"')
+          var empty = ee.Image().byte();
+          var palette = ['FFE4E1','8fbc8f']//'ff7f50',]//,'8fbc8f']//['ff0000', 'ffff00'];
+          var iaricoloured = empty.paint(iari, 'Farm_Area').paint(iari, 0, 2);
+          Map.addLayer(
+            iaricoloured,
+            {
+              palette: ['000000'].concat(palette),
+              min: 0,
+              max: palette.length
+              
+            },
+            'IARI Boundary'
+          );
+          //Map.addLayer(iaricoloured)
+        //}
+        var legend = ui.Panel({
+          style: {
+            position: 'bottom-left',
+            padding: '8px 15px'
+          }
+        });
+        
+        var legend2 = ui.Label({
+          value: 'IARI Land Use',
+          style: {
+            fontWeight: 'bold',
+            fontSize: '18px',
+            margin: '0 0 4px 0',
+            padding: '0'
+            }
+        });
+        
+        legend.add(legend2);
+        var content = function(color, label) {
+          var box = ui.Label({
+            style: {
+              backgroundColor: '#' + color,
+              padding: '9px',
+              margin: '0 0 4px 0'
+            }
+          });
+          var labels = ui.Label({
+            value: label,
+            style: {margin: '0 0 4px 6px'}
+          });
+          return ui.Panel({
+            widgets: [box, labels],
+            layout: ui.Panel.Layout.Flow('horizontal')
+          });
+        };
+        
+        var classcolor = ['FFE4E1','8fbc8f'];
+        var labelName = ['Built Area','Agriculture'];
+        for (var i = 0; i < 2; i++) {
+          legend.add(content(classcolor[i], labelName[i]));
+        }  
+        Map.add(legend);
+        Map.centerObject(boundary, 15)         
+        //Map.addLayer(boundary)
+      }
+      },
+      style: {padding: '0px 0px 0px 115px', color: 'black'}
+    });
+    panel.add(Reset);
+
+  }
+})
